@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>License Pricing Calc</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#f5f6fa;--card:#fff;--border:#d1d5db;--primary:#1e3a5f;--accent:#2563eb;--accent-hover:#1d4ed8;--danger:#dc2626;--text:#1f2937;--muted:#6b7280;--success:#16a34a;--lock-bg:#fef3c7;--radius:8px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;padding:16px}
+  h1{font-size:1.5rem;color:var(--primary);margin-bottom:4px}
+  h2{font-size:1.05rem;color:var(--primary);margin-bottom:8px}
+  .subtitle{color:var(--muted);font-size:.82rem;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .col-left{flex:1;min-width:340px}
+  .col-right{flex:1;min-width:340px}
+  /* Tabs */
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px}
+  .tab{padding:6px 14px;border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;background:var(--bg);cursor:pointer;font-size:.82rem;font-weight:500;color:var(--muted);transition:.15s}
+  .tab.active{background:var(--card);border-bottom-color:var(--card);color:var(--accent);font-weight:600}
+  .tab:hover:not(.active){background:#e8ecf1}
+  /* Buttons */
+  .btn{padding:6px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);cursor:pointer;font-size:.78rem;font-weight:500;transition:.15s}
+  .btn:hover{background:#e8ecf1}
+  .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn-primary:hover{background:var(--accent-hover)}
+  .btn-danger{color:var(--danger);border-color:var(--danger)}
+  .btn-danger:hover{background:#fef2f2}
+  .btn-sm{padding:4px 10px;font-size:.72rem}
+  .btn-group{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  /* Table */
+  table{width:100%;border-collapse:collapse;font-size:.82rem}
+  th{background:var(--primary);color:#fff;padding:6px 8px;text-align:left;font-weight:500;white-space:nowrap}
+  td{padding:4px 6px;border-bottom:1px solid var(--border)}
+  tr:hover{background:#f0f4f8}
+  tr.locked{background:var(--lock-bg)}
+  input[type="number"],input[type="text"]{width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:.82rem;background:#fff}
+  input[type="number"]:focus,input[type="text"]:focus{outline:2px solid var(--accent);border-color:transparent}
+  input[type="checkbox"]{cursor:pointer;width:16px;height:16px}
+  /* Solver inputs */
+  .solver-row{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px}
+  .solver-field{display:flex;flex-direction:column;gap:2px}
+  .solver-field label{font-size:.75rem;color:var(--muted);font-weight:500}
+  .solver-field input{width:160px;padding:6px 8px;font-size:.9rem;font-weight:600}
+  /* Chart */
+  .chart-wrap{position:relative;height:280px}
+  /* Revenue badge */
+  .revenue-badge{display:inline-block;padding:4px 10px;border-radius:var(--radius);font-size:.82rem;font-weight:600;margin-top:4px}
+  .revenue-match{background:#dcfce7;color:var(--success)}
+  .revenue-off{background:#fef3c7;color:#92400e}
+  /* Responsive */
+  @media(max-width:768px){.row{flex-direction:column}.solver-field input{width:100%}}
+</style>
+</head>
+<body>
+
+<h1>DDS Embedded License Pricing Curve Tool</h1>
+<p class="subtitle">Interactive volume-based pricing negotiation tool</p>
+
+<!-- ── Variant tabs ──────────────────────────────────────────────── -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <h2 style="margin:0">Product Variants</h2>
+    <button class="btn btn-primary btn-sm" onclick="addVariant()">+ Add Product Variant</button>
+  </div>
+  <div id="variantTabs" class="tabs"></div>
+</div>
+
+<!-- ── Two-column layout ─────────────────────────────────────────── -->
+<div class="row">
+  <div class="col-left">
+
+    <!-- Solver -->
+    <div class="card">
+      <h2>Revenue Solver</h2>
+      <div class="solver-row">
+        <div class="solver-field">
+          <label>Target Total Volume</label>
+          <input type="number" id="targetVolume" value="10000000" onchange="solve()"/>
+        </div>
+        <div class="solver-field">
+          <label>Target Revenue (€)</label>
+          <input type="number" id="targetRevenue" value="9920000" onchange="solve()"/>
+        </div>
+        <button class="btn btn-primary" onclick="solve()">Solve</button>
+      </div>
+      <div id="revenueResult"></div>
+    </div>
+
+    <!-- Pricing tiers table -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0">Pricing Tiers</h2>
+        <div class="btn-group" style="margin:0">
+          <button class="btn btn-sm" onclick="addTier()">+ Add Tier</button>
+          <button class="btn btn-sm btn-danger" onclick="resetCurve()">Reset to Default</button>
+          <button class="btn btn-sm" onclick="exportCSV()">Export CSV</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>#</th><th>From Vol.</th><th>To Vol.</th><th>Price (€/unit)</th><th>Revenue (€)</th><th title="Lock tier from solver adjustment">Lock</th><th></th></tr></thead>
+          <tbody id="tierBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-right">
+    <!-- Chart -->
+    <div class="card">
+      <h2>Pricing Curve</h2>
+      <div class="chart-wrap"><canvas id="priceChart"></canvas></div>
+    </div>
+
+    <!-- Business Cases -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0">Business Case Scenarios</h2>
+        <button class="btn btn-sm btn-primary" onclick="addBC()">+ Add Business Case</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Scenario</th><th>2027</th><th>2028</th><th>2029</th><th>2030</th><th>2031</th><th>2032</th><th>2033</th><th>Total Units</th><th>Total Rev (€)</th><th></th></tr></thead>
+          <tbody id="bcBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   DATA MODEL
+   ================================================================ */
+
+// Default tiers (11 tiers, non-increasing prices)
+function defaultTiers(){
+  return [
+    {from:0,       to:100000,    price:1.20, locked:false},
+    {from:100001,  to:250000,    price:1.15, locked:false},
+    {from:250001,  to:500000,    price:1.10, locked:false},
+    {from:500001,  to:1000000,   price:1.05, locked:false},
+    {from:1000001, to:2000000,   price:1.00, locked:false},
+    {from:2000001, to:3000000,   price:0.95, locked:false},
+    {from:3000001, to:5000000,   price:0.88, locked:false},
+    {from:5000001, to:7000000,   price:0.80, locked:false},
+    {from:7000001, to:8500000,   price:0.72, locked:false},
+    {from:8500001, to:10000000,  price:0.65, locked:false},
+    {from:10000001,to:15000000,  price:0.58, locked:false},
+  ];
+}
+
+// Default business cases (annual volumes 2027-2033)
+function defaultBCs(){
+  return [
+    {name:'BC1', vols:[1000000,1500000,1500000,2000000,2000000,1500000,500000]},
+    {name:'BC2', vols:[3000000,4000000,4000000,5000000,5000000,3000000,1000000]},
+    {name:'BC3', vols:[5000000,6000000,6000000,8500000,5500000,4000000,1500000]},
+  ];
+}
+
+// Variants array — each has name, tiers, businessCases
+let variants = [
+  {name:'Variant A (DDS Base)', tiers:defaultTiers(), bcs:defaultBCs()},
+  {name:'Variant B',            tiers:defaultTiers(), bcs:defaultBCs()},
+  {name:'Variant C',            tiers:defaultTiers(), bcs:defaultBCs()},
+];
+let activeVariant = 0;
+
+/* ================================================================
+   HELPERS
+   ================================================================ */
+const fmt  = n => n.toLocaleString('en-US');
+const fmtE = n => '€' + n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const el   = id => document.getElementById(id);
+
+function v(){return variants[activeVariant]}
+
+// Calculate revenue for a given total volume across tiers
+function calcRevenue(tiers, totalVol){
+  let remaining = totalVol, rev = 0;
+  for(const t of tiers){
+    const band = t.to - t.from + 1;
+    const used = Math.min(remaining, band);
+    if(used <= 0) break;
+    rev += used * t.price;
+    remaining -= used;
+  }
+  return rev;
+}
+
+// Revenue per tier for a given total volume
+function tierRevenues(tiers, totalVol){
+  let remaining = totalVol;
+  return tiers.map(t => {
+    const band = t.to - t.from + 1;
+    const used = Math.min(remaining, band);
+    remaining -= Math.max(used, 0);
+    return used > 0 ? used * t.price : 0;
+  });
+}
+
+/* ================================================================
+   SOLVER — adjusts unlocked tiers to match target revenue
+   ================================================================ */
+function solve(){
+  const tiers = v().tiers;
+  const targetVol = parseInt(el('targetVolume').value) || 10000000;
+  const targetRev = parseFloat(el('targetRevenue').value) || 9920000;
+
+  const currentRev = calcRevenue(tiers, targetVol);
+  let delta = targetRev - currentRev;
+  if(Math.abs(delta) < 0.01){ renderAll(); return; }
+
+  // Find unlocked tiers (prefer last N)
+  const unlocked = [];
+  for(let i = tiers.length - 1; i >= 0; i--){
+    if(!tiers[i].locked) unlocked.push(i);
+    if(unlocked.length >= 5) break;
+  }
+  if(unlocked.length === 0){ renderAll(); return; }
+
+  // Compute units used per tier
+  let remaining = targetVol;
+  const used = tiers.map(t => {
+    const band = t.to - t.from + 1;
+    const u = Math.min(remaining, band);
+    remaining -= Math.max(u, 0);
+    return Math.max(u, 0);
+  });
+
+  // Total units in unlocked tiers
+  const unlockedUnits = unlocked.reduce((s,i) => s + used[i], 0);
+  if(unlockedUnits === 0){ renderAll(); return; }
+
+  // Distribute delta proportionally
+  for(const i of unlocked){
+    const share = used[i] / unlockedUnits;
+    tiers[i].price = Math.max(0.01, tiers[i].price + (delta * share) / used[i]);
+    tiers[i].price = Math.round(tiers[i].price * 10000) / 10000;
+  }
+
+  // Enforce non-increasing
+  enforceNonIncreasing(tiers);
+  renderAll();
+}
+
+// Enforce non-increasing prices from top to bottom
+function enforceNonIncreasing(tiers){
+  for(let i = 1; i < tiers.length; i++){
+    if(tiers[i].price > tiers[i-1].price){
+      tiers[i].price = tiers[i-1].price;
+    }
+  }
+}
+
+/* ================================================================
+   RENDERING
+   ================================================================ */
+let chart = null;
+
+function renderTabs(){
+  const wrap = el('variantTabs');
+  wrap.innerHTML = variants.map((v,i) =>
+    `<div class="tab ${i===activeVariant?'active':''}" onclick="switchVariant(${i})">${v.name}</div>`
+  ).join('');
+}
+
+function renderTiers(){
+  const tiers = v().tiers;
+  const targetVol = parseInt(el('targetVolume').value) || 10000000;
+  const revs = tierRevenues(tiers, targetVol);
+  const body = el('tierBody');
+  body.innerHTML = tiers.map((t,i) => {
+    const lockClass = t.locked ? 'locked' : '';
+    return `<tr class="${lockClass}">
+      <td style="text-align:center;color:var(--muted)">${i+1}</td>
+      <td><input type="number" value="${t.from}" onchange="updateTier(${i},'from',this.value)"/></td>
+      <td><input type="number" value="${t.to}" onchange="updateTier(${i},'to',this.value)"/></td>
+      <td><input type="number" step="0.0001" value="${t.price}" onchange="updateTier(${i},'price',this.value)" style="font-weight:600"/></td>
+      <td style="text-align:right;white-space:nowrap">${fmtE(revs[i])}</td>
+      <td style="text-align:center"><input type="checkbox" ${t.locked?'checked':''} onchange="toggleLock(${i})"/></td>
+      <td><button class="btn btn-sm btn-danger" onclick="removeTier(${i})" title="Remove tier">&times;</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderRevenue(){
+  const targetVol = parseInt(el('targetVolume').value) || 10000000;
+  const targetRev = parseFloat(el('targetRevenue').value) || 9920000;
+  const actual = calcRevenue(v().tiers, targetVol);
+  const diff = actual - targetRev;
+  const pct = targetRev ? ((diff / targetRev) * 100).toFixed(2) : '0';
+  const cls = Math.abs(diff) < targetRev * 0.001 ? 'revenue-match' : 'revenue-off';
+  el('revenueResult').innerHTML =
+    `<span class="revenue-badge ${cls}">Calculated Revenue: ${fmtE(actual)} &nbsp;|&nbsp; Δ ${fmtE(diff)} (${pct}%)</span>`;
+}
+
+function renderChart(){
+  const tiers = v().tiers;
+  // Build step data points
+  const data = [];
+  for(const t of tiers){
+    data.push({x: t.from, y: t.price});
+    data.push({x: t.to,   y: t.price});
+  }
+  if(chart){
+    chart.data.datasets[0].data = data;
+    chart.data.datasets[0].label = v().name + ' — Price/Unit';
+    chart.update();
+  } else {
+    chart = new Chart(el('priceChart'), {
+      type:'line',
+      data:{datasets:[{
+        label: v().name + ' — Price/Unit',
+        data,
+        stepped:'before',
+        borderColor:getComputedStyle(document.documentElement).getPropertyValue('--accent'),
+        backgroundColor:'rgba(37,99,235,.1)',
+        fill:true,
+        borderWidth:2,
+        pointRadius:3,
+        pointBackgroundColor:'#fff',
+        pointBorderColor:getComputedStyle(document.documentElement).getPropertyValue('--accent'),
+      }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        scales:{
+          x:{type:'linear', title:{display:true,text:'Cumulative Volume'}, ticks:{callback:v=>fmt(v)}},
+          y:{title:{display:true,text:'Price per Unit (€)'}, ticks:{callback:v=>'€'+v.toFixed(2)}, beginAtZero:false}
+        },
+        plugins:{tooltip:{callbacks:{label:ctx=>`€${ctx.parsed.y.toFixed(4)} @ ${fmt(ctx.parsed.x)} units`}}}
+      }
+    });
+  }
+}
+
+function renderBCs(){
+  const bcs = v().bcs;
+  const tiers = v().tiers;
+  const body = el('bcBody');
+  body.innerHTML = bcs.map((bc,i) => {
+    const total = bc.vols.reduce((s,v)=>s+v,0);
+    const rev = calcRevenue(tiers, total);
+    return `<tr>
+      <td><input type="text" value="${bc.name}" onchange="updateBC(${i},'name',this.value)" style="width:70px;font-weight:600"/></td>
+      ${bc.vols.map((vol,j) => `<td><input type="number" value="${vol}" onchange="updateBC(${i},${j},this.value)" style="width:80px"/></td>`).join('')}
+      <td style="text-align:right;font-weight:600;white-space:nowrap">${fmt(total)}</td>
+      <td style="text-align:right;font-weight:600;white-space:nowrap">${fmtE(rev)}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="removeBC(${i})" title="Remove">&times;</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderAll(){
+  renderTabs();
+  renderTiers();
+  renderRevenue();
+  renderChart();
+  renderBCs();
+}
+
+/* ================================================================
+   ACTIONS
+   ================================================================ */
+function switchVariant(i){ activeVariant = i; renderAll(); }
+
+function addVariant(){
+  const n = variants.length + 1;
+  variants.push({name:`Variant ${String.fromCharCode(64+n)}`, tiers:defaultTiers(), bcs:defaultBCs()});
+  activeVariant = variants.length - 1;
+  renderAll();
+}
+
+function updateTier(i, field, val){
+  const tiers = v().tiers;
+  if(field === 'price'){
+    tiers[i].price = Math.max(0, parseFloat(val) || 0);
+    enforceNonIncreasing(tiers);
+  } else if(field === 'from'){
+    tiers[i].from = parseInt(val) || 0;
+  } else if(field === 'to'){
+    tiers[i].to = parseInt(val) || 0;
+  }
+  renderAll();
+}
+
+function toggleLock(i){ v().tiers[i].locked = !v().tiers[i].locked; renderAll(); }
+
+function addTier(){
+  const tiers = v().tiers;
+  const last = tiers[tiers.length - 1];
+  tiers.push({from: last.to + 1, to: last.to + 5000000, price: Math.max(0.01, last.price - 0.05), locked: false});
+  renderAll();
+}
+
+function removeTier(i){
+  if(v().tiers.length <= 1) return;
+  v().tiers.splice(i, 1);
+  renderAll();
+}
+
+function resetCurve(){
+  if(!confirm('Reset pricing tiers to defaults for this variant?')) return;
+  v().tiers = defaultTiers();
+  renderAll();
+}
+
+function updateBC(i, field, val){
+  if(field === 'name'){
+    v().bcs[i].name = val;
+  } else {
+    v().bcs[i].vols[field] = parseInt(val) || 0;
+  }
+  renderAll();
+}
+
+function addBC(){
+  const n = v().bcs.length + 1;
+  v().bcs.push({name:`BC${n}`, vols:[0,0,0,0,0,0,0]});
+  renderAll();
+}
+
+function removeBC(i){
+  v().bcs.splice(i, 1);
+  renderAll();
+}
+
+/* ================================================================
+   CSV EXPORT
+   ================================================================ */
+function exportCSV(){
+  const tiers = v().tiers;
+  const targetVol = parseInt(el('targetVolume').value) || 10000000;
+  const revs = tierRevenues(tiers, targetVol);
+  let csv = `Variant: ${v().name}\nTarget Volume,${targetVol}\nTarget Revenue,${el('targetRevenue').value}\n\n`;
+  csv += 'Tier,From,To,Price (EUR),Revenue (EUR),Locked\n';
+  tiers.forEach((t,i) => {
+    csv += `${i+1},${t.from},${t.to},${t.price.toFixed(4)},${revs[i].toFixed(2)},${t.locked}\n`;
+  });
+  csv += `\nTotal Revenue,,,,"${calcRevenue(tiers, targetVol).toFixed(2)}"\n`;
+  csv += '\nBusiness Cases\nScenario,2027,2028,2029,2030,2031,2032,2033,Total Units,Total Revenue\n';
+  v().bcs.forEach(bc => {
+    const total = bc.vols.reduce((s,v)=>s+v,0);
+    csv += `${bc.name},${bc.vols.join(',')},${total},${calcRevenue(tiers,total).toFixed(2)}\n`;
+  });
+
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${v().name.replace(/\s+/g,'_')}_pricing_curve.csv`;
+  a.click();
+}
+
+/* ================================================================
+   INIT
+   ================================================================ */
+renderAll();
+</script>
+</body>
+</html>
