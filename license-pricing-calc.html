@@ -139,7 +139,7 @@
   <!-- Left panel: Product Pricing Tiers -->
   <div class="left-panel">
     <div class="card" style="margin-bottom:0">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <h2 style="margin:0">Product Pricing Tiers</h2>
         <div class="btn-group" style="margin:0;align-items:center">
           <button class="btn btn-sm" onclick="addTier()">+ Add Tier</button>
@@ -147,6 +147,10 @@
           <button class="btn btn-sm" onclick="openSaveDialog()" title="Save pricing data">Save</button>
           <button class="btn btn-sm" onclick="openLoadDialog()" title="Load pricing data">Load</button>
         </div>
+      </div>
+      <div style="margin-bottom:8px;font-size:.82rem;display:flex;align-items:center;gap:6px">
+        <label style="font-weight:500;color:var(--muted);white-space:nowrap">Product:</label>
+        <input type="text" id="productName" placeholder="Enter product name…" onchange="v().productName=this.value.trim()" style="flex:1;font-weight:600;font-size:.85rem;padding:3px 6px"/>
       </div>
       <table>
         <thead><tr>
@@ -268,9 +272,9 @@ function defaultBCs(){
 }
 
 let variants = [
-  {name:'Variant A', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
-  {name:'Variant B', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
-  {name:'Variant C', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
+  {name:'Variant A', productName:'', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
+  {name:'Variant B', productName:'', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
+  {name:'Variant C', productName:'', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
 ];
 let activeVariant = 0;
 let currency = 'EUR';
@@ -523,6 +527,7 @@ function tabClick(i,evt){
 
 function renderTiers(){
   const tiers=v().tiers, sym=cSym();
+  el('productName').value=v().productName||'';
   el('priceColHead').textContent='PM Price ('+sym+')';
   el('tierBody').innerHTML=tiers.map((t,i)=>{
     return `<tr>
@@ -1074,7 +1079,8 @@ document.addEventListener('mousedown',function(e){ if(!e.target.closest('#lockPo
 function closeModal(id){ el(id).classList.remove('open'); }
 
 function openSaveDialog(){
-  el('saveName').value=v().name+' — '+ new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const pn=v().productName?v().productName+' — ':'';
+  el('saveName').value=pn+v().name+' — '+ new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
   el('saveModal').classList.add('open');
 }
 
@@ -1128,6 +1134,7 @@ function openLoadDialog(){
 function applyData(d){
   variants=d.variants||variants;
   for(const vr of variants){
+    if(vr.productName===undefined) vr.productName='';
     for(const t of vr.tiers){ if('locked' in t){t.lockX=t.locked;t.lockY=t.locked;delete t.locked;} if(t.adjPrice===undefined) t.adjPrice=t.price; }
     if(!vr.negTiers) vr.negTiers=vr.tiers.map(t=>({from:t.from,to:t.to,price:t.adjPrice||t.price,lockX:t.lockX||false,lockY:t.lockY||false}));
   }
