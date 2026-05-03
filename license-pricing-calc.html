@@ -122,7 +122,7 @@
       <option value="USD">$ USD</option>
     </select>
     <label style="margin-left:8px">EUR &rarr; USD Rate:</label>
-    <input type="number" id="fxRate" value="1.08" step="0.01" style="width:80px" onchange="renderAll()"/>
+    <input type="number" id="fxRate" value="1.080" step="0.001" style="width:80px" onchange="renderAll()"/>
     <span style="display:flex;gap:6px;align-items:center">
       <button class="btn btn-sm btn-primary" onclick="saveSession()" title="Save all data to browser for next session">&#x1F4BE; Save Session</button>
       <button class="btn btn-sm" onclick="loadSession()" title="Restore previously saved session">&#x1F4C2; Load Session</button>
@@ -237,25 +237,13 @@
    ================================================================ */
 function defaultTiers(){
   return [
-    {from:0,       to:100000,    price:1.20, adjPrice:1.20, lockX:false,lockY:false},
-    {from:100001,  to:250000,    price:1.15, adjPrice:1.15, lockX:false,lockY:false},
-    {from:250001,  to:500000,    price:1.10, adjPrice:1.10, lockX:false,lockY:false},
-    {from:500001,  to:1000000,   price:1.05, adjPrice:1.05, lockX:false,lockY:false},
-    {from:1000001, to:2000000,   price:1.00, adjPrice:1.00, lockX:false,lockY:false},
-    {from:2000001, to:3000000,   price:0.95, adjPrice:0.95, lockX:false,lockY:false},
-    {from:3000001, to:5000000,   price:0.88, adjPrice:0.88, lockX:false,lockY:false},
-    {from:5000001, to:7000000,   price:0.80, adjPrice:0.80, lockX:false,lockY:false},
-    {from:7000001, to:8500000,   price:0.72, adjPrice:0.72, lockX:false,lockY:false},
-    {from:8500001, to:10000000,  price:0.65, adjPrice:0.65, lockX:false,lockY:false},
-    {from:10000001,to:15000000,  price:0.58, adjPrice:0.58, lockX:false,lockY:false},
+    {from:0, to:0, price:0, adjPrice:0, lockX:false, lockY:false},
   ];
 }
 
 function defaultBCs(){
   return [
-    {name:'BC1', vols:[1000000,1500000,1500000,2000000,2000000,1500000,500000]},
-    {name:'BC2', vols:[3000000,4000000,4000000,5000000,5000000,3000000,1000000]},
-    {name:'BC3', vols:[5000000,6000000,6000000,8500000,5500000,4000000,1500000]},
+    {name:'BC1', vols:[0,0,0,0,0,0,0]},
   ];
 }
 
@@ -750,19 +738,35 @@ function removeBC(i){
 /* ================================================================
    UNIVERSAL SESSION SAVE / LOAD / RESET
    ================================================================ */
-function saveSession(){
+async function saveSession(){
   const payload=buildPayload();
-  localStorage.setItem('ddsPricingSession',JSON.stringify(payload));
-  alert('Session saved successfully.');
+  const json=JSON.stringify(payload,null,2);
+  const name=v().name.replace(/[^a-zA-Z0-9_ \-]/g,'_')+'_session';
+  const fileName=name+'.json';
+  if(window.showSaveFilePicker){
+    try{
+      const handle=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:'JSON Files',accept:{'application/json':['.json']}}]});
+      const w=await handle.createWritable(); await w.write(json); await w.close(); return;
+    }catch(e){ if(e.name==='AbortError') return; }
+  }
+  const blob=new Blob([json],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fileName; a.click();
 }
 function loadSession(){
-  const raw=localStorage.getItem('ddsPricingSession');
-  if(!raw){alert('No saved session found.');return;}
-  try{
-    const d=JSON.parse(raw);
-    applyData(d);
-    alert('Session loaded successfully.');
-  }catch(e){alert('Error loading session: '+e.message);}
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='.json';
+  inp.onchange=function(e){
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=function(ev){
+      try{
+        const d=JSON.parse(ev.target.result);
+        applyData(d);
+      }catch(err){alert('Invalid session file: '+err.message);}
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
 }
 function resetAll(){
   if(!confirm('Reset ALL data to defaults? This cannot be undone.')) return;
@@ -785,7 +789,7 @@ function exportExcel(){
   const neg=nt(), bcs=v().bcs, sels=v().selectedBCs||[0];
   if(!sels.length){alert('No business case selected.');return;}
   const years=getYears().map(String);
-  const sym=cSym(), rate=getFxRate();
+  const sym=currency, rate=getFxRate();
   const numYears=years.length;
 
   // Year labels: first = "SoP YYYY", rest = "FY YYYY"
@@ -832,7 +836,7 @@ function exportExcel(){
     // Data rows
     neg.forEach((t,i)=>{
       const label='"'+fmtN(t.from)+' to '+fmtN(t.to)+'"';
-      let row=[label,(t.price*rate).toFixed(3)];
+      let row=[label,'"'+(t.price*rate).toFixed(3)+'"'];
       let tVol=0, tRev=0;
       for(let j=0;j<numYears;j++){
         if(bc.vols[j]>0){
