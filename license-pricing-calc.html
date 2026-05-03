@@ -1122,6 +1122,12 @@ function exportXLSX(){
     rows.push(totRow);
 
     const ws=XLSX.utils.aoa_to_sheet(rows);
+    // Apply 3-decimal format to license price cells (column B in data rows)
+    const dataStartRow=rows.length-neg.length-1; // first data row (0-indexed)
+    for(let r=dataStartRow;r<dataStartRow+neg.length;r++){
+      const addr=XLSX.utils.encode_cell({r:r,c:1});
+      if(ws[addr]) ws[addr].z='0.000';
+    }
     // Set column widths
     ws['!cols']=[{wch:22},{wch:16}];
     for(let j=0;j<numYears*2+2;j++) ws['!cols'].push({wch:14});
@@ -1183,7 +1189,9 @@ function openSaveDialog(){
 }
 
 function buildPayload(){
-  return {productName,tiers,bcs,selectedBCs,startYear,variants,activeVariant,fxRate:el('fxRate').value,currency};
+  return {productName,tiers,bcs,selectedBCs,startYear,variants,activeVariant,fxRate:el('fxRate').value,currency,
+    zoomUnits:el('zoomUnits').value, zoomCheck:el('zoomCheck').checked,
+    maxPriceUnit:el('maxPriceUnit').value, maxVolume:el('maxVolume').value};
 }
 
 function doSaveLocal(){
@@ -1250,6 +1258,10 @@ function applyData(d){
   activeVariant=d.activeVariant||0;
   if(d.fxRate) el('fxRate').value=d.fxRate;
   if(d.currency){currency=d.currency; el('currencySelect').value=currency;}
+  if(d.zoomUnits) el('zoomUnits').value=d.zoomUnits;
+  if(d.zoomCheck!==undefined) el('zoomCheck').checked=d.zoomCheck;
+  if(d.maxPriceUnit) el('maxPriceUnit').value=d.maxPriceUnit;
+  if(d.maxVolume) el('maxVolume').value=d.maxVolume;
   renderAll();
 }
 
