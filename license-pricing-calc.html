@@ -131,7 +131,7 @@
       <button class="btn btn-sm btn-danger" onclick="resetAll()" title="Reset everything to defaults">&#x21BB; Reset All</button>
       <button class="btn btn-sm" onclick="exportPDF()" title="Export summary to PDF">&#x1F4C4; PDF Summary</button>
     </span>
-    <label style="margin-left:auto;cursor:pointer"><input type="checkbox" id="darkToggle" onchange="document.body.classList.toggle('dark',this.checked)" style="width:14px;height:14px"> Dark Mode</label>
+    <label style="margin-left:auto;cursor:pointer"><input type="checkbox" id="darkToggle" onchange="document.body.classList.toggle('dark',this.checked);renderChart()" style="width:14px;height:14px"> Dark Mode</label>
   </div>
 </div>
 
