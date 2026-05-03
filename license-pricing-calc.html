@@ -22,6 +22,8 @@
 <title>License Pricing Curve Tool</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-dragdata@2.2.5/dist/chartjs-plugin-dragdata.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
 <style>
   :root{--bg:#f5f6fa;--card:#fff;--border:#d1d5db;--primary:#1e3a5f;--accent:#2563eb;--accent-hover:#1d4ed8;--danger:#dc2626;--text:#1f2937;--muted:#6b7280;--success:#16a34a;--lock-bg:#fef3c7;--radius:8px}
   *{box-sizing:border-box;margin:0;padding:0}
@@ -127,6 +129,7 @@
       <button class="btn btn-sm btn-primary" onclick="saveSession()" title="Save all data to browser for next session">&#x1F4BE; Save Session</button>
       <button class="btn btn-sm" onclick="loadSession()" title="Restore previously saved session">&#x1F4C2; Load Session</button>
       <button class="btn btn-sm btn-danger" onclick="resetAll()" title="Reset everything to defaults">&#x21BB; Reset All</button>
+      <button class="btn btn-sm" onclick="exportPDF()" title="Export summary to PDF">&#x1F4C4; PDF Summary</button>
     </span>
     <label style="margin-left:auto;cursor:pointer"><input type="checkbox" id="darkToggle" onchange="document.body.classList.toggle('dark',this.checked)" style="width:14px;height:14px"> Dark Mode</label>
   </div>
@@ -238,7 +241,7 @@
       <div style="overflow-x:auto">
         <table>
           <thead><tr>
-            <th style="text-align:center">#</th><th style="text-align:center">From</th><th style="text-align:center">To</th><th style="text-align:center" id="negPriceHead">Curve Price</th><th style="text-align:right">Units</th><th style="text-align:right" id="negRevHead">Revenue</th><th style="text-align:center">Lock</th>
+            <th style="text-align:center">#</th><th style="text-align:center">From</th><th style="text-align:center">To</th><th style="text-align:center" id="negPriceHead">Curve Price</th><th style="text-align:center">% Red.</th><th style="text-align:right">Units</th><th style="text-align:right" id="negRevHead">Revenue</th><th style="text-align:center">Lock</th>
           </tr></thead>
           <tbody id="negBody"></tbody>
           <tfoot id="negFoot"></tfoot>
@@ -372,6 +375,103 @@ function enforceNonIncreasing(tiers,f){
 }
 
 /* ================================================================
+   PDF EXPORT — summary document
+   ================================================================ */
+function exportPDF(){
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const sym=cSym(), rate=getFxRate(), neg=nt(), tiers=v().tiers;
+  const totalVol=getSelectedVolume(), units=tierUnits(neg,totalVol);
+  const pmRev=calcRevenue(tiers,totalVol,false);
+  const negRev=units.reduce((s,u,i)=>s+u*neg[i].price,0);
+  const bcs=v().bcs, sels=v().selectedBCs||[0];
+  const years=getYears();
+  const now=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+  let y=15;
+
+  // Title
+  doc.setFontSize(16); doc.setFont(undefined,'bold');
+  doc.text('License Pricing Summary',14,y); y+=7;
+  doc.setFontSize(10); doc.setFont(undefined,'normal');
+  doc.text('Variant: '+v().name+'    |    Currency: '+currency+(currency==='USD'?' (FX: '+rate+')':'')+'    |    Date: '+now,14,y); y+=8;
+
+  // PM Target vs Negotiated Revenue
+  const delta=pmRev>0?(((negRev-pmRev)/pmRev)*100).toFixed(1):'0.0';
+  doc.text('PM Target Revenue: '+sym+Math.round(pmRev*rate).toLocaleString('en-US')+'    |    Negotiated Revenue: '+sym+Math.round(negRev*rate).toLocaleString('en-US')+'    |    Delta: '+delta+'%',14,y); y+=10;
+
+  // Product Pricing Tiers
+  doc.setFontSize(12); doc.setFont(undefined,'bold');
+  doc.text('Product Pricing Tiers',14,y); y+=2;
+  doc.autoTable({
+    startY:y,
+    head:[['#','From','To','PM Price ('+sym+')']],
+    body:tiers.map((t,i)=>[i+1,fmtN(t.from),fmtN(t.to),(t.price*rate).toFixed(3)]),
+    theme:'grid', headStyles:{fillColor:[30,58,95]}, styles:{fontSize:8,halign:'right'},
+    columnStyles:{0:{halign:'center'}}, margin:{left:14,right:14}
+  });
+  y=doc.lastAutoTable.finalY+8;
+
+  // Negotiated Pricing
+  doc.setFontSize(12); doc.setFont(undefined,'bold');
+  doc.text('Negotiated Pricing',14,y); y+=2;
+  let tU=0,tR=0;
+  const negBody=neg.map((t,i)=>{
+    const u=units[i], rev=u*t.price*rate;
+    tU+=u; tR+=rev;
+    const pctRed=i===0?'—':(((neg[i-1].price-t.price)/neg[i-1].price)*100).toFixed(1)+'%';
+    return [i+1,fmtN(t.from),fmtN(t.to),(t.price*rate).toFixed(3),pctRed,fmtN(u),Math.round(rev).toLocaleString('en-US')];
+  });
+  negBody.push([{content:'TOTAL',colSpan:5,styles:{fontStyle:'bold',halign:'center'}},'',{content:fmtN(tU),styles:{fontStyle:'bold'}},{content:Math.round(tR).toLocaleString('en-US'),styles:{fontStyle:'bold'}}]);
+  doc.autoTable({
+    startY:y,
+    head:[['#','From','To','Curve Price ('+sym+')','% Red.','Units','Revenue ('+sym+')']],
+    body:negBody,
+    theme:'grid', headStyles:{fillColor:[30,58,95]}, styles:{fontSize:8,halign:'right'},
+    columnStyles:{0:{halign:'center'},4:{halign:'center'}}, margin:{left:14,right:14}
+  });
+  y=doc.lastAutoTable.finalY+8;
+
+  // Business Case Scenarios
+  if(y>160){ doc.addPage(); y=15; }
+  doc.setFontSize(12); doc.setFont(undefined,'bold');
+  doc.text('Business Case Scenarios',14,y); y+=2;
+  const bcHead=['Scenario',...years.map(String),'Total Units','Total Rev ('+sym+')','Selected'];
+  const bcBody=bcs.map((bc,i)=>{
+    const tot=bc.vols.reduce((s,x)=>s+x,0), rev=calcRevenue(tiers,tot,false)*rate;
+    return [bc.name,...bc.vols.map(v=>fmtN(v)),fmtN(tot),Math.round(rev).toLocaleString('en-US'),sels.includes(i)?'Yes':''];
+  });
+  doc.autoTable({
+    startY:y,
+    head:[bcHead], body:bcBody,
+    theme:'grid', headStyles:{fillColor:[30,58,95]}, styles:{fontSize:8,halign:'right'},
+    columnStyles:{0:{halign:'left'}}, margin:{left:14,right:14}
+  });
+
+  // Chart image
+  y=doc.lastAutoTable.finalY+8;
+  if(y>140){ doc.addPage(); y=15; }
+  try{
+    const canvas=el('priceChart');
+    const imgData=canvas.toDataURL('image/png');
+    doc.setFontSize(12); doc.setFont(undefined,'bold');
+    doc.text('Pricing Curve',14,y); y+=4;
+    const imgW=250, imgH=imgW*(canvas.height/canvas.width);
+    doc.addImage(imgData,'PNG',14,y,imgW,Math.min(imgH,100));
+  }catch(e){}
+
+  // Footer
+  const pages=doc.internal.getNumberOfPages();
+  for(let p=1;p<=pages;p++){
+    doc.setPage(p);
+    doc.setFontSize(7); doc.setFont(undefined,'italic');
+    doc.text('Created by Peter Grant-Hay  |  License Pricing Curve Tool',14,doc.internal.pageSize.height-6);
+    doc.text('Page '+p+' of '+pages,doc.internal.pageSize.width-30,doc.internal.pageSize.height-6);
+  }
+
+  doc.save(v().name.replace(/[^a-zA-Z0-9_ \-]/g,'_')+'_pricing_summary.pdf');
+}
+
+/* ================================================================
    QUICK CURVE GENERATOR — power-law decay from a starting price,
    then auto-adjust to match target revenue
    ================================================================ */
@@ -385,13 +485,24 @@ function generateQuickCurve(){
   const decay=aggressiveness/150;                       // 0..~0.667
   const refVol=10000;                                   // reference volume for log scaling
   for(let i=0;i<neg.length;i++){
-    if(neg[i].lockY) continue;                          // respect locked tiers
     const mid=(neg[i].from+neg[i].to)/2||1;
-    const logFactor=Math.log10(Math.max(mid,1)/refVol); // negative for small vols, positive for large
+    const logFactor=Math.log10(Math.max(mid,1)/refVol);
     neg[i].price=Math.max(0.01,Math.round(startPrice*Math.pow(1-decay,logFactor)*10000)/10000);
   }
   enforceNonIncreasing(neg,'price');
-  renderAll();                                          // shape only — no revenue solver override
+  // Scale all prices proportionally to match PM target revenue
+  const totalVol=getSelectedVolume();
+  if(totalVol>0){
+    const targetRev=calcRevenue(v().tiers,totalVol,false);
+    const units=tierUnits(neg,totalVol);
+    const curRev=units.reduce((s,u,i)=>s+u*neg[i].price,0);
+    if(curRev>0){
+      const scale=targetRev/curRev;
+      for(let i=0;i<neg.length;i++) neg[i].price=Math.max(0.01,Math.round(neg[i].price*scale*10000)/10000);
+      enforceNonIncreasing(neg,'price');
+    }
+  }
+  renderAll();
 }
 
 /* ================================================================
@@ -440,6 +551,7 @@ function renderNegotiated(){
       <td style="text-align:center"><input id="neg-${i}-from" type="text" value="${fmtN(t.from)}" onchange="updatePointVol(${i},'from',this.value)" onfocus="this.select()" tabindex="${i*3+1}" style="width:90px;text-align:right"/></td>
       <td style="text-align:center"><input id="neg-${i}-to" type="text" value="${fmtN(t.to)}" onchange="updatePointVol(${i},'to',this.value)" onfocus="this.select()" tabindex="${i*3+2}" style="width:90px;text-align:right"/></td>
       <td style="text-align:center"><input id="neg-${i}-price" type="text" value="${fmtPrice(t.price)}" onchange="updatePointPrice(${i},this.value)" onfocus="this.select()" tabindex="${i*3+3}" style="width:80px;text-align:right;font-weight:600"/></td>
+      <td style="text-align:center;color:var(--muted);font-size:.8rem">${i===0?'—':(((neg[i-1].price-t.price)/neg[i-1].price)*100).toFixed(1)+'%'}</td>
       <td style="text-align:right">${fmtN(u)}</td>
       <td style="text-align:right">${fmtC(rev)}</td>
       <td style="text-align:center;white-space:nowrap">
@@ -450,7 +562,7 @@ function renderNegotiated(){
   }).join('');
   const match=pmRev>0&&Math.abs(tRev-pmRev)<pmRev*0.001;
   el('negFoot').innerHTML=`<tr style="font-weight:700">
-    <td colspan="4">TOTAL</td>
+    <td colspan="5">TOTAL</td>
     <td style="text-align:right;font-weight:600">${fmtN(tUnits)}</td>
     <td style="text-align:right;color:${match?'var(--success)':'var(--danger)'}">${fmtC(tRev)}</td>
     <td></td>
@@ -485,7 +597,7 @@ function renderChart(){
   const tailData=[{x:lastT.to,y:lastPrice},{x:lastT.to+1,y:0}];
   if(endVol>lastT.to+1) tailData.push({x:endVol,y:0});
   const maxP=parseFloat(el('maxPriceUnit').value)||0, yMax=maxP>0?maxP*rate:undefined;
-  const dk=document.body.classList.contains('dark'), tc=dk?'#e5e7eb':'#374151', gc=dk?'#374151':'#e5e7eb';
+  const dk=document.body.classList.contains('dark'), tc=dk?'#f9fafb':'#374151', gc=dk?'#4b5563':'#e5e7eb';
   const tailCfg={label:'',data:tailData,stepped:false,borderColor:'rgba(37,99,235,0.4)',borderWidth:1,borderDash:[4,4],fill:false,pointRadius:0,pointHoverRadius:0,dragData:false};
   if(chart){
     chart.data.datasets[0].data=data;
