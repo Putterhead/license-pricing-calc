@@ -24,6 +24,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-dragdata@2.2.5/dist/chartjs-plugin-dragdata.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{--bg:#f5f6fa;--card:#fff;--border:#d1d5db;--primary:#1e3a5f;--accent:#2563eb;--accent-hover:#1d4ed8;--danger:#dc2626;--text:#1f2937;--muted:#6b7280;--success:#16a34a;--lock-bg:#fef3c7;--radius:8px}
   *{box-sizing:border-box;margin:0;padding:0}
@@ -150,7 +151,7 @@
       </div>
       <div style="margin-bottom:8px;font-size:.82rem;display:flex;align-items:center;gap:6px">
         <label style="font-weight:500;color:var(--muted);white-space:nowrap">Product:</label>
-        <input type="text" id="productName" placeholder="Enter product name…" onchange="v().productName=this.value.trim()" style="flex:1;font-weight:600;font-size:.85rem;padding:3px 6px"/>
+        <input type="text" id="productName" placeholder="Enter product name…" onchange="productName=this.value.trim()" style="flex:1;font-weight:600;font-size:.85rem;padding:3px 6px"/>
       </div>
       <table>
         <thead><tr>
@@ -161,7 +162,7 @@
     </div>
   </div>
 
-  <!-- Right panel: Variants + scrollable cards -->
+  <!-- Right panel: Scenarios + scrollable cards -->
   <div class="right-panel">
     <!-- Pricing Scenarios (narrow, top) -->
     <div class="card" style="flex-shrink:0">
@@ -239,7 +240,8 @@
             <option value="cumulative">Cumulative Volume</option>
             <option value="yearly">Yearly Volume</option>
           </select>
-          <button class="btn btn-sm btn-primary" onclick="exportExcel()" title="Export selected BC to CSV/Excel">Export</button>
+          <button class="btn btn-sm btn-primary" onclick="exportExcel()" title="Export selected BC to CSV">CSV</button>
+          <button class="btn btn-sm btn-primary" onclick="exportXLSX()" title="Export selected BC to Excel (.xlsx)">XLSX</button>
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -271,10 +273,15 @@ function defaultBCs(){
   ];
 }
 
+let productName = '';
+let tiers = defaultTiers();
+let bcs = defaultBCs();
+let selectedBCs = [0];
+let startYear = 2027;
 let variants = [
-  {name:'Variant A', productName:'', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
-  {name:'Variant B', productName:'', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
-  {name:'Variant C', productName:'', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
+  {name:'Scenario A'},
+  {name:'Scenario B'},
+  {name:'Scenario C'},
 ];
 let activeVariant = 0;
 let currency = 'EUR';
@@ -309,16 +316,15 @@ function undoCurve(){
   renderAll();
 }
 function syncNegTiers(){
-  v().negTiers=v().tiers.map(t=>({
+  v().negTiers=tiers.map(t=>({
     from:t.from, to:t.to,
     price:t.adjPrice!==undefined?t.adjPrice:t.price,
     lockX:false, lockY:false
   }));
 }
 function getYears(){
-  const n=v().bcs.length>0?v().bcs[0].vols.length:7;
-  const start=v().startYear||2027;
-  return Array.from({length:n},(_,i)=>start+i);
+  const n=bcs.length>0?bcs[0].vols.length:7;
+  return Array.from({length:n},(_,i)=>startYear+i);
 }
 
 function fmtMaxPrice(){ el('maxPriceUnit').value=(parseFloat(String(el('maxPriceUnit').value).replace(/[^0-9.\-]/g,''))||0).toFixed(2); renderChart(); }
@@ -326,8 +332,8 @@ function fmtMaxVol(){ const n=parseNum(el('maxVolume').value); el('maxVolume').v
 function fmtZoomUnits(){ const n=parseNum(el('zoomUnits').value); el('zoomUnits').value=n>0?fmtN(n):'5,000,000'; renderChart(); }
 
 function getSelectedVolume(){
-  const sels=v().selectedBCs||[0]; let maxVol=0;
-  for(const idx of sels){ const bc=v().bcs[idx]; if(bc){ const t=bc.vols.reduce((s,x)=>s+x,0); if(t>maxVol) maxVol=t; } }
+  const sels=selectedBCs||[0]; let maxVol=0;
+  for(const idx of sels){ const bc=bcs[idx]; if(bc){ const t=bc.vols.reduce((s,x)=>s+x,0); if(t>maxVol) maxVol=t; } }
   return maxVol;
 }
 
@@ -353,7 +359,7 @@ function tierUnits(tiers,totalVol){
    ================================================================ */
 function autoAdjust(changedIdx,allUnlocked){
   const neg=nt(), totalVol=getSelectedVolume();
-  const targetRev=calcRevenue(v().tiers,totalVol,false);
+  const targetRev=calcRevenue(tiers,totalVol,false);
   const units=tierUnits(neg,totalVol);
   let fixedRev=0; const adj=[];
   for(let i=0;i<neg.length;i++){
@@ -384,11 +390,11 @@ function enforceNonIncreasing(tiers,f){
 function exportPDF(){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  const sym=cSym(), rate=getFxRate(), neg=nt(), tiers=v().tiers;
+  const sym=cSym(), rate=getFxRate(), neg=nt();
   const totalVol=getSelectedVolume(), units=tierUnits(neg,totalVol);
   const pmRev=calcRevenue(tiers,totalVol,false);
   const negRev=units.reduce((s,u,i)=>s+u*neg[i].price,0);
-  const bcs=v().bcs, sels=v().selectedBCs||[0];
+  const sels=selectedBCs||[0];
   const years=getYears();
   const now=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
   let y=15;
@@ -397,7 +403,7 @@ function exportPDF(){
   doc.setFontSize(16); doc.setFont(undefined,'bold');
   doc.text('License Pricing Summary',14,y); y+=7;
   doc.setFontSize(10); doc.setFont(undefined,'normal');
-  doc.text('Variant: '+v().name+'    |    Currency: '+currency+(currency==='USD'?' (FX: '+rate+')':'')+'    |    Date: '+now,14,y); y+=8;
+  doc.text('Scenario: '+v().name+(productName?' ('+productName+')':'')+'    |    Currency: '+currency+(currency==='USD'?' (FX: '+rate+')':'')+'    |    Date: '+now,14,y); y+=8;
 
   // PM Target vs Negotiated Revenue
   const delta=pmRev>0?(((negRev-pmRev)/pmRev)*100).toFixed(1):'0.0';
@@ -472,7 +478,7 @@ function exportPDF(){
     doc.text('Page '+p+' of '+pages,doc.internal.pageSize.width-30,doc.internal.pageSize.height-6);
   }
 
-  doc.save(v().name.replace(/[^a-zA-Z0-9_ \-]/g,'_')+'_pricing_summary.pdf');
+  doc.save((productName||v().name).replace(/[^a-zA-Z0-9_ \-]/g,'_')+'_pricing_summary.pdf');
 }
 
 /* ================================================================
@@ -497,7 +503,7 @@ function generateQuickCurve(){
   // Scale all prices proportionally to match PM target revenue
   const totalVol=getSelectedVolume();
   if(totalVol>0){
-    const targetRev=calcRevenue(v().tiers,totalVol,false);
+    const targetRev=calcRevenue(tiers,totalVol,false);
     const units=tierUnits(neg,totalVol);
     const curRev=units.reduce((s,u,i)=>s+u*neg[i].price,0);
     if(curRev>0){
@@ -526,8 +532,8 @@ function tabClick(i,evt){
 }
 
 function renderTiers(){
-  const tiers=v().tiers, sym=cSym();
-  el('productName').value=v().productName||'';
+  const sym=cSym();
+  el('productName').value=productName||'';
   el('priceColHead').textContent='PM Price ('+sym+')';
   el('tierBody').innerHTML=tiers.map((t,i)=>{
     return `<tr>
@@ -543,7 +549,7 @@ function renderTiers(){
 function renderNegotiated(){
   const neg=nt(), sym=cSym();
   const totalVol=getSelectedVolume(), units=tierUnits(neg,totalVol);
-  const pmRev=calcRevenue(v().tiers,totalVol,false);
+  const pmRev=calcRevenue(tiers,totalVol,false);
   el('negPriceHead').textContent='Curve Price ('+sym+')';
   el('negRevHead').textContent='Revenue ('+sym+')';
   el('negStepCount').value=neg.length;
@@ -697,7 +703,7 @@ function renderChart(){
 }
 
 function renderBCs(){
-  const bcs=v().bcs, tiers=v().tiers, sels=v().selectedBCs||[0], sym=cSym(), years=getYears();
+  const sels=selectedBCs||[0], sym=cSym(), years=getYears();
   el('bcHead').innerHTML=`<tr>
     <th style="text-align:center" title="Select scenario to model">Model</th><th style="text-align:center">Scenario</th>
     ${years.map(y=>`<th style="text-align:center">${y}</th>`).join('')}
@@ -717,21 +723,20 @@ function renderBCs(){
 }
 
 function renderAll(){ if(!v().negTiers) syncNegTiers(); renderTabs(); renderTiers(); renderChart(); renderNegotiated(); renderBCs(); }
+function switchVariant(i){ activeVariant=i; renderAll(); }
 
 /* ================================================================
    ACTIONS
    ================================================================ */
 function switchCurrency(){ currency=el('currencySelect').value; renderAll(); }
-function switchVariant(i){ activeVariant=i; renderAll(); }
 
 function addVariant(){
   const n=variants.length+1;
-  variants.push({name:'Variant '+String.fromCharCode(64+n),tiers:defaultTiers(),bcs:defaultBCs(),selectedBCs:[0],startYear:2027});
-  activeVariant=variants.length-1; renderAll();
+  variants.push({name:'Scenario '+String.fromCharCode(64+n)});
+  activeVariant=variants.length-1; syncNegTiers(); renderAll();
 }
 
 function updateTier(i,field,val){
-  const tiers=v().tiers;
   if(field==='price'){
     tiers[i].price=Math.max(0.01,Math.round(parsePrice(val)*10000)/10000);
     syncNegTiers();
@@ -745,7 +750,7 @@ function updateTier(i,field,val){
   const fields=['from','to','price'];
   let fi=fields.indexOf(field)+1, ti=i;
   if(fi>=fields.length){ fi=0; ti++; }
-  if(ti<v().tiers.length){
+  if(ti<tiers.length){
     setTimeout(()=>{ const nx=document.getElementById('tier-'+ti+'-'+fields[fi]); if(nx){nx.focus();nx.select();} },0);
   }
 }
@@ -815,13 +820,13 @@ function editVariantName(i,evt){
 }
 
 function addTier(){
-  const tiers=v().tiers, last=tiers[tiers.length-1];
+  const last=tiers[tiers.length-1];
   const p=Math.max(0.01,last.price-0.05);
   tiers.push({from:last.to+1,to:last.to+5000000,price:p,adjPrice:p,lockX:false,lockY:false});
   syncNegTiers(); renderAll();
 }
 
-function removeTier(i){ if(v().tiers.length<=1) return; v().tiers.splice(i,1); syncNegTiers(); renderAll(); }
+function removeTier(i){ if(tiers.length<=1) return; tiers.splice(i,1); syncNegTiers(); renderAll(); }
 
 function setNegTierCount(n){
   if(!n||n<1) n=1; if(n>50) n=50;
@@ -852,42 +857,42 @@ function setNegTierCount(n){
 }
 
 function resetCurve(){
-  if(!confirm('Reset pricing tiers to defaults for this variant?')) return;
-  v().tiers=defaultTiers(); syncNegTiers(); renderAll();
+  if(!confirm('Reset pricing tiers to defaults?')) return;
+  tiers=defaultTiers(); syncNegTiers(); renderAll();
 }
 
 function toggleBC(i){
-  const sels=v().selectedBCs, idx=sels.indexOf(i);
+  const sels=selectedBCs, idx=sels.indexOf(i);
   if(idx>=0&&sels.length>1) sels.splice(idx,1); else if(idx<0) sels.push(i);
   autoAdjust(-1,true); renderAll();
 }
 
 function updateBC(i,field,val){
-  if(field==='name') v().bcs[i].name=val;
-  else v().bcs[i].vols[field]=parseNum(val);
-  if((v().selectedBCs||[0]).includes(i)) autoAdjust(-1,true);
+  if(field==='name') bcs[i].name=val;
+  else bcs[i].vols[field]=parseNum(val);
+  if((selectedBCs||[0]).includes(i)) autoAdjust(-1,true);
   renderAll();
 }
 
 function addBC(){
-  const numYears=v().bcs.length>0?v().bcs[0].vols.length:7;
-  v().bcs.push({name:'BC'+(v().bcs.length+1),vols:Array(numYears).fill(0)});
+  const numYears=bcs.length>0?bcs[0].vols.length:7;
+  bcs.push({name:'BC'+(bcs.length+1),vols:Array(numYears).fill(0)});
   renderAll();
 }
 function addYear(){
-  for(const bc of v().bcs) bc.vols.push(0);
+  for(const bc of bcs) bc.vols.push(0);
   renderAll();
 }
 function removeYear(){
-  if(!v().bcs.length||v().bcs[0].vols.length<=1) return;
-  for(const bc of v().bcs) bc.vols.pop();
+  if(!bcs.length||bcs[0].vols.length<=1) return;
+  for(const bc of bcs) bc.vols.pop();
   renderAll();
 }
 
 function removeBC(i){
-  v().bcs.splice(i,1);
-  v().selectedBCs=(v().selectedBCs||[0]).filter(x=>x!==i).map(x=>x>i?x-1:x);
-  if(!v().selectedBCs.length) v().selectedBCs=[Math.max(0,v().bcs.length-1)];
+  bcs.splice(i,1);
+  selectedBCs=(selectedBCs||[0]).filter(x=>x!==i).map(x=>x>i?x-1:x);
+  if(!selectedBCs.length) selectedBCs=[Math.max(0,bcs.length-1)];
   autoAdjust(-1,true); renderAll();
 }
 
@@ -899,7 +904,7 @@ function removeBC(i){
 async function saveSession(){
   const payload=buildPayload();
   const json=JSON.stringify(payload,null,2);
-  const name=v().name.replace(/[^a-zA-Z0-9_ \-]/g,'_')+'_session';
+  const name=(productName||v().name).replace(/[^a-zA-Z0-9_ \-]/g,'_')+'_session';
   const fileName=name+'.json';
   if(window.showSaveFilePicker){
     try{
@@ -928,10 +933,11 @@ function loadSession(){
 }
 function resetAll(){
   if(!confirm('Reset ALL data to defaults? This cannot be undone.')) return;
+  productName=''; tiers=defaultTiers(); bcs=defaultBCs(); selectedBCs=[0]; startYear=2027;
   variants=[
-    {name:'Variant A', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
-    {name:'Variant B', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
-    {name:'Variant C', tiers:defaultTiers(), bcs:defaultBCs(), selectedBCs:[0], startYear:2027},
+    {name:'Scenario A'},
+    {name:'Scenario B'},
+    {name:'Scenario C'},
   ];
   activeVariant=0;
   currency='EUR'; el('currencySelect').value='EUR';
@@ -944,7 +950,7 @@ function resetAll(){
    EXPORT — Excel-compatible CSV for all selected Business Cases
    ================================================================ */
 function exportExcel(){
-  const neg=nt(), bcs=v().bcs, sels=v().selectedBCs||[0];
+  const neg=nt(), sels=selectedBCs||[0];
   if(!sels.length){alert('No business case selected.');return;}
   const years=getYears().map(String);
   const sym=currency, rate=getFxRate();
@@ -954,7 +960,7 @@ function exportExcel(){
   const yrLabels=years.map((y,j)=>j===0?'SoP '+y:'FY'+y);
 
   // Global header
-  let csv='Variant: '+v().name+'\nCurrency: '+currency+'\n';
+  let csv='sep=,\nScenario: '+v().name+'\nCurrency: '+currency+'\n';
   if(currency==='USD') csv+='Exchange Rate (EUR to USD): '+rate+'\n';
 
   // Build one table block per selected BC
@@ -1026,11 +1032,103 @@ function exportExcel(){
     csv+=totRow.join(',')+'\n';
   });
 
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const bom='\uFEFF';
+  const blob=new Blob([bom+csv],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download=v().name.replace(/\s+/g,'_')+'_pricing.csv';
   a.click();
+}
+
+function exportXLSX(){
+  const neg=nt(), sels=selectedBCs||[0];
+  if(!sels.length){alert('No business case selected.');return;}
+  const years=getYears().map(String);
+  const sym=currency, rate=getFxRate();
+  const numYears=years.length;
+  const yrLabels=years.map((y,j)=>j===0?'SoP '+y:'FY'+y);
+  const method=el('exportVolMethod').value;
+  const wb=XLSX.utils.book_new();
+
+  sels.forEach((bi)=>{
+    const bc=bcs[bi];
+    if(!bc) return;
+    const rows=[];
+    // Info rows
+    rows.push(['Scenario: '+v().name]);
+    rows.push(['Currency: '+currency]);
+    if(currency==='USD') rows.push(['Exchange Rate (EUR to USD): '+rate]);
+    rows.push([]);
+    rows.push(['Business Case: '+bc.name]);
+
+    // Header row 1
+    const h1=['',''];
+    for(let j=0;j<numYears;j++){ h1.push(yrLabels[j],''); }
+    h1.push('Total','');
+    rows.push(h1);
+
+    // Header row 2
+    const h2=['','License / instance '+sym];
+    for(let j=0;j<numYears;j++){ h2.push('Volume',sym); }
+    h2.push('Volume',sym);
+    rows.push(h2);
+
+    // Compute per-year tier units
+    let yearUnits;
+    if(method==='cumulative'){
+      yearUnits=[]; let cumVol=0;
+      for(let j=0;j<numYears;j++){
+        const prevU=tierUnits(neg,cumVol);
+        cumVol+=bc.vols[j];
+        const curU=tierUnits(neg,cumVol);
+        yearUnits.push(curU.map((u,k)=>u-prevU[k]));
+      }
+    } else {
+      yearUnits=bc.vols.map(vol=>vol>0?tierUnits(neg,vol):neg.map(()=>0));
+    }
+
+    // Data rows
+    neg.forEach((t,i)=>{
+      const label=fmtN(t.from)+' to '+fmtN(t.to);
+      const row=[label, Math.round(t.price*rate*1000)/1000];
+      let tVol=0, tRev=0;
+      for(let j=0;j<numYears;j++){
+        if(bc.vols[j]>0){
+          const yVol=yearUnits[j][i], yRev=yVol*t.price*rate;
+          tVol+=yVol; tRev+=yRev;
+          row.push(yVol, Math.round(yRev));
+        } else {
+          row.push('','');
+        }
+      }
+      row.push(tVol, Math.round(tRev));
+      rows.push(row);
+    });
+
+    // Totals row
+    const totRow=['TOTAL',''];
+    let gVol=0, gRev=0;
+    for(let j=0;j<numYears;j++){
+      let yRev=0;
+      for(let k=0;k<neg.length;k++) yRev+=yearUnits[j][k]*neg[k].price*rate;
+      if(bc.vols[j]>0){
+        totRow.push(bc.vols[j], Math.round(yRev));
+        gVol+=bc.vols[j]; gRev+=yRev;
+      } else {
+        totRow.push('','');
+      }
+    }
+    totRow.push(gVol, Math.round(gRev));
+    rows.push(totRow);
+
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    // Set column widths
+    ws['!cols']=[{wch:22},{wch:16}];
+    for(let j=0;j<numYears*2+2;j++) ws['!cols'].push({wch:14});
+    XLSX.utils.book_append_sheet(wb, ws, bc.name.substring(0,31));
+  });
+
+  XLSX.writeFile(wb, (productName||v().name).replace(/[^a-zA-Z0-9_ \-]/g,'_')+'_pricing.xlsx');
 }
 
 /* ================================================================
@@ -1079,14 +1177,13 @@ document.addEventListener('mousedown',function(e){ if(!e.target.closest('#lockPo
 function closeModal(id){ el(id).classList.remove('open'); }
 
 function openSaveDialog(){
-  const pn=v().productName?v().productName+' — ':'';
+  const pn=productName?productName+' — ':'';
   el('saveName').value=pn+v().name+' — '+ new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
   el('saveModal').classList.add('open');
 }
 
 function buildPayload(){
-  // negTiers are saved within each variant object automatically
-  return {variants,activeVariant,fxRate:el('fxRate').value,currency};
+  return {productName,tiers,bcs,selectedBCs,startYear,variants,activeVariant,fxRate:el('fxRate').value,currency};
 }
 
 function doSaveLocal(){
@@ -1132,11 +1229,23 @@ function openLoadDialog(){
 }
 
 function applyData(d){
+  // Detect old per-variant format (no top-level tiers)
+  const isOldFormat=!d.tiers && d.variants && d.variants[0] && d.variants[0].tiers;
+  // Migrate shared state
+  if(d.tiers){ tiers=d.tiers; } else if(d.variants&&d.variants[0]&&d.variants[0].tiers){ tiers=d.variants[0].tiers; }
+  if(d.bcs){ bcs=d.bcs; } else if(d.variants&&d.variants[0]&&d.variants[0].bcs){ bcs=d.variants[0].bcs; }
+  if(d.selectedBCs){ selectedBCs=d.selectedBCs; } else if(d.variants&&d.variants[0]&&d.variants[0].selectedBCs){ selectedBCs=d.variants[0].selectedBCs; }
+  if(d.startYear){ startYear=d.startYear; } else if(d.variants&&d.variants[0]&&d.variants[0].startYear){ startYear=d.variants[0].startYear; }
+  if(d.productName!==undefined){ productName=d.productName; } else if(d.variants&&d.variants[0]&&d.variants[0].productName){ productName=d.variants[0].productName; } else { productName=''; }
+  for(const t of tiers){ if('locked' in t){t.lockX=t.locked;t.lockY=t.locked;delete t.locked;} if(t.adjPrice===undefined) t.adjPrice=t.price; }
   variants=d.variants||variants;
   for(const vr of variants){
-    if(vr.productName===undefined) vr.productName='';
-    for(const t of vr.tiers){ if('locked' in t){t.lockX=t.locked;t.lockY=t.locked;delete t.locked;} if(t.adjPrice===undefined) t.adjPrice=t.price; }
-    if(!vr.negTiers) vr.negTiers=vr.tiers.map(t=>({from:t.from,to:t.to,price:t.adjPrice||t.price,lockX:t.lockX||false,lockY:t.lockY||false}));
+    // Strip old per-variant shared fields (now top-level)
+    delete vr.tiers; delete vr.bcs; delete vr.selectedBCs; delete vr.startYear; delete vr.productName;
+    if(!vr.negTiers || isOldFormat){
+      // Rebuild negTiers from shared PM tiers (old format had per-variant tiers which are now lost)
+      vr.negTiers=tiers.map(t=>({from:t.from,to:t.to,price:t.adjPrice||t.price,lockX:t.lockX||false,lockY:t.lockY||false}));
+    }
   }
   activeVariant=d.activeVariant||0;
   if(d.fxRate) el('fxRate').value=d.fxRate;
