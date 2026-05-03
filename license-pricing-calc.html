@@ -195,11 +195,12 @@
       </div>
       <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:.82rem">
         <label style="cursor:pointer" title="When checked, locks all volume boundaries so you can only drag points vertically to change prices, not horizontally to change tier volumes"><input type="checkbox" id="strictVolSteps" onchange="renderChart()" style="width:14px;height:14px"> Strict volume steps</label>
-        <label style="cursor:pointer" title="Zoom into the first N units on the x-axis for precise adjustments"><input type="checkbox" id="zoomCheck" onchange="renderChart()" style="width:14px;height:14px"> Zoom to first</label>
-        <input type="text" id="zoomUnits" value="500,000" style="width:110px" onchange="fmtZoomUnits()"/>
-        <span style="color:var(--muted)">units</span>
+        <label style="cursor:pointer" title="Magnify the early part of the x-axis so closely-spaced low-volume tiers are easier to drag"><input type="checkbox" id="zoomCheck" onchange="renderChart()" style="width:14px;height:14px"> Magnify early volumes (zoom to first</label>
+        <input type="text" id="zoomUnits" value="5,000,000" style="width:110px" onchange="fmtZoomUnits()"/>
+        <span style="color:var(--muted)">units)</span>
       </div>
       <div class="chart-wrap"><canvas id="priceChart"></canvas><div id="lockPopup" class="lock-popup"></div></div>
+      <p id="zoomHint" class="chart-hint" style="color:var(--accent);font-weight:600;display:none">&#x1F50D; Zoomed view — early volumes only</p>
       <p class="chart-hint">Drag points to adjust curve — click a point for precise editing &amp; lock options — unlocked tiers auto-adjust to match PM revenue</p>
     </div>
     <!-- Negotiated Pricing -->
@@ -299,7 +300,7 @@ function getYears(){
 
 function fmtMaxPrice(){ el('maxPriceUnit').value=(parseFloat(String(el('maxPriceUnit').value).replace(/[^0-9.\-]/g,''))||0).toFixed(2); renderChart(); }
 function fmtMaxVol(){ const n=parseNum(el('maxVolume').value); el('maxVolume').value=n>0?fmtN(n):'0'; renderChart(); }
-function fmtZoomUnits(){ const n=parseNum(el('zoomUnits').value); el('zoomUnits').value=n>0?fmtN(n):'500,000'; renderChart(); }
+function fmtZoomUnits(){ const n=parseNum(el('zoomUnits').value); el('zoomUnits').value=n>0?fmtN(n):'5,000,000'; renderChart(); }
 
 function getSelectedVolume(){
   const sels=v().selectedBCs||[0]; let maxVol=0;
@@ -536,6 +537,7 @@ function renderChart(){
       }
     });
   }
+  el('zoomHint').style.display=zooming&&zoomVal>0?'':'none';
 }
 
 function renderBCs(){
