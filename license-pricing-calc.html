@@ -202,6 +202,22 @@
       <div class="chart-wrap"><canvas id="priceChart"></canvas><div id="lockPopup" class="lock-popup"></div></div>
       <p id="zoomHint" class="chart-hint" style="color:var(--accent);font-weight:600;display:none">&#x1F50D; Zoomed view — early volumes only</p>
       <p class="chart-hint">Drag points to adjust curve — click a point for precise editing &amp; lock options — unlocked tiers auto-adjust to match PM revenue</p>
+      <!-- Quick Curve Generator -->
+      <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:.82rem;margin-bottom:6px">
+          <h3 style="margin:0;font-size:.88rem;color:var(--primary)">Quick Curve Generator</h3>
+          <label style="font-weight:500;color:var(--muted)">Starting Price:</label>
+          <input type="text" id="qcgStartPrice" value="3.500" style="width:70px;text-align:right" onchange="this.value=parseFloat(this.value.replace(/[^0-9.]/g,'')||3.5).toFixed(3)"/>
+          <label style="font-weight:500;color:var(--muted)">Discount Aggressiveness:</label>
+          <input type="range" id="qcgSlider" min="0" max="100" value="50" style="width:140px" oninput="el('qcgVal').textContent=this.value+'%';generateQuickCurve()"/>
+          <span id="qcgVal" style="min-width:32px;font-weight:600;color:var(--accent)">50%</span>
+        </div>
+        <div style="display:flex;gap:6px;font-size:.78rem">
+          <button class="btn btn-sm" onclick="el('qcgSlider').value=20;el('qcgVal').textContent='20%';generateQuickCurve()">Mild</button>
+          <button class="btn btn-sm" onclick="el('qcgSlider').value=50;el('qcgVal').textContent='50%';generateQuickCurve()">Balanced</button>
+          <button class="btn btn-sm" onclick="el('qcgSlider').value=80;el('qcgVal').textContent='80%';generateQuickCurve()">Aggressive</button>
+        </div>
+      </div>
     </div>
     <!-- Negotiated Pricing -->
     <div class="card">
@@ -353,6 +369,29 @@ function autoAdjust(changedIdx,allUnlocked){
 function enforceNonIncreasing(tiers,f){
   f=f||'price';
   for(let i=1;i<tiers.length;i++) if(tiers[i][f]>tiers[i-1][f]) tiers[i][f]=tiers[i-1][f];
+}
+
+/* ================================================================
+   QUICK CURVE GENERATOR — power-law decay from a starting price,
+   then auto-adjust to match target revenue
+   ================================================================ */
+let _qcgUndoPushed=false;
+function generateQuickCurve(){
+  const neg=nt();
+  if(!neg.length) return;
+  if(!_qcgUndoPushed){ pushUndo(); _qcgUndoPushed=true; setTimeout(()=>_qcgUndoPushed=false,800); }
+  const startPrice=parseFloat(String(el('qcgStartPrice').value).replace(/[^0-9.]/g,''))||3.5;
+  const aggressiveness=Number(el('qcgSlider').value);   // 0..100, avoid falsy-zero
+  const decay=aggressiveness/150;                       // 0..~0.667
+  const refVol=10000;                                   // reference volume for log scaling
+  for(let i=0;i<neg.length;i++){
+    if(neg[i].lockY) continue;                          // respect locked tiers
+    const mid=(neg[i].from+neg[i].to)/2||1;
+    const logFactor=Math.log10(Math.max(mid,1)/refVol); // negative for small vols, positive for large
+    neg[i].price=Math.max(0.01,Math.round(startPrice*Math.pow(1-decay,logFactor)*10000)/10000);
+  }
+  enforceNonIncreasing(neg,'price');
+  renderAll();                                          // shape only — no revenue solver override
 }
 
 /* ================================================================
